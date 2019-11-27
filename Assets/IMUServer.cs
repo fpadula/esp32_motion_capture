@@ -82,7 +82,8 @@ public class IMUServer : MonoBehaviour
     {
         Socket handler;
         //make the server socket, again using TCP as the transmission protocol
-        Socket listener = new Socket(localEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        // Socket listener = new Socket(localEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        Socket listener = new Socket(localEndPoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
         Thread t;
         //tell the socket that it belongs to our machine by binding it to our IP
         listener.Bind(localEndPoint);

@@ -3,6 +3,7 @@
 #include "MPU6050_6Axis_MotionApps_V6_12.h"
 
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <MPU6050.h>
 #include <Preferences.h>
 
@@ -23,8 +24,7 @@ uint16_t packetSize;  // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;   // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64];  // FIFO storage buffer
 
-#define SENSOR_IDENTIFIER 'b'
-uint8_t unityPacket[9] = {0, 0, 0, 0, 0, 0, 0, 0, SENSOR_IDENTIFIER};
+uint8_t unityPacket[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 
 // ================================================================
@@ -42,12 +42,15 @@ void IRAM_ATTR dmpDataReady() { mpuInterrupt = true; }
 const char* ssid = "padula-note";
 const char* password = "hotspotforimu";
 
-const uint16_t port = 8090;
+const int port = 60001;
 const char* host = "padula-note.local";
 
 const int PushButton = 18;
 
 WiFiClient client;
+
+WiFiUDP udp;                                // A UDP instance to let us send and receive packets over UDP
+
 Preferences preferences;
 
 int16_t *GetActiveOffsets(MPU6050 *mpu){
@@ -127,8 +130,8 @@ void setup() {
                 blinkState = !blinkState;
                 delay(500);
             }
-            mpu.CalibrateAccel(6);
-            mpu.CalibrateGyro(6);
+			mpu.CalibrateAccel(6);
+        	mpu.CalibrateGyro(6);
             offsets = GetActiveOffsets(&mpu);
             mpu.setXAccelOffset(offsets[0]);
             mpu.setYAccelOffset(offsets[1]);
@@ -167,6 +170,8 @@ void setup() {
             mpu.setXGyroOffset(read_offsets[3]);
             mpu.setYGyroOffset(read_offsets[4]);
             mpu.setZGyroOffset(read_offsets[5]);
+			mpu.CalibrateAccel(6);
+			mpu.CalibrateGyro(6);
         }
     // #ifdef CALIBRATE
     // #endif
@@ -212,6 +217,8 @@ void setup() {
 	Serial.print("WiFi connected with IP: ");
 	Serial.println(WiFi.localIP());
 	digitalWrite(LED_PIN, false);
+
+	udp.begin(port);
 }
 
 // ================================================================
@@ -220,16 +227,16 @@ void setup() {
 
 void loop() {    
       
-	if (!client.connected()) {
-		if (!client.connect(host, port)) {
-			Serial.println("Connection to host failed");
+	// if (!client.connected()) {
+	// 	if (!client.connect(host, port)) {
+	// 		Serial.println("Connection to host failed");
 
-			delay(1000);
-			return;
-		} else {
-			Serial.println("Connected to server successful!");
-		}
-	}
+	// 		delay(1000);
+	// 		return;
+	// 	} else {
+	// 		Serial.println("Connected to server successful!");
+	// 	}
+	// }
 
 	// if programming failed, don't try to do anything
 	if (!dmpReady) return;
@@ -281,6 +288,7 @@ void loop() {
 		// track FIFO count here in case there is > 1 packet available
 		// (this lets us immediately read more without waiting for an interrupt)
 		fifoCount -= packetSize;
+
 		unityPacket[0] = fifoBuffer[0];
 		unityPacket[1] = fifoBuffer[1];
 		unityPacket[2] = fifoBuffer[4];
@@ -289,7 +297,10 @@ void loop() {
 		unityPacket[5] = fifoBuffer[9];
 		unityPacket[6] = fifoBuffer[12];
 		unityPacket[7] = fifoBuffer[13];
-		client.write(unityPacket, 9);
+
+		udp.beginPacket(host, port);
+		udp.write(unityPacket, 8);
+		udp.endPacket();
 		
 	}
 }
