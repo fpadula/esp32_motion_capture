@@ -42,7 +42,7 @@ void IRAM_ATTR dmpDataReady() { mpuInterrupt = true; }
 const char* ssid = "padula-note";
 const char* password = "hotspotforimu";
 
-const int port = 60000;
+const int port = 60001;
 const char* host = "padula-note.local";
 
 const int PushButton = 18;
@@ -126,13 +126,27 @@ void setup() {
 
 			Serial.println(F("Calibration button pushed. Setting offsets and calibrating..."));
             blinkState = true;
-            for (i = 0; i < 10; i++){
-			    digitalWrite(LED_PIN, blinkState);
-                blinkState = !blinkState;
-                delay(500);
-            }
-			mpu.CalibrateAccel(6);
-        	mpu.CalibrateGyro(6);
+            // for (i = 0; i < 10; i++){
+			//     digitalWrite(LED_PIN, blinkState);
+            //     blinkState = !blinkState;
+            //     delay(500);
+            // }
+            #define printfloatx(Name,Variable,Spaces,Precision,EndTxt) { Serial.print(F(Name)); {char S[(Spaces + Precision + 3)];Serial.print(F(" ")); Serial.print(dtostrf((float)Variable,Spaces,Precision ,S));}Serial.print(F(EndTxt)); }//Name,Variable,Spaces,Precision,EndTxt
+			
+            // offsets = GetActiveOffsets(&mpu);
+            
+
+            // Serial.print(F("\n//           X Accel  Y Accel  Z Accel   X Gyro   Y Gyro   Z Gyro\n//OFFSETS SAVED ON EPROM   "));
+			// printfloatx("", offsets[0], 5, 0, ",  ");
+			// printfloatx("", offsets[1], 5, 0, ",  ");
+			// printfloatx("", offsets[2], 5, 0, ",  ");
+			// printfloatx("", offsets[3], 5, 0, ",  ");
+			// printfloatx("", offsets[4], 5, 0, ",  ");
+			// printfloatx("", offsets[5], 5, 0, ",  ");
+
+            mpu.CalibrateAccel(15);
+        	mpu.CalibrateGyro(15);
+            // free(offsets);
             offsets = GetActiveOffsets(&mpu);
             mpu.setXAccelOffset(offsets[0]);
             mpu.setYAccelOffset(offsets[1]);
@@ -144,7 +158,6 @@ void setup() {
             preferences.putBytes("offsets", offsets, sizeof(int16_t) * 6);
             
             Serial.print(F("\n//           X Accel  Y Accel  Z Accel   X Gyro   Y Gyro   Z Gyro\n//OFFSETS SAVED ON EPROM   "));
-            #define printfloatx(Name,Variable,Spaces,Precision,EndTxt) { Serial.print(F(Name)); {char S[(Spaces + Precision + 3)];Serial.print(F(" ")); Serial.print(dtostrf((float)Variable,Spaces,Precision ,S));}Serial.print(F(EndTxt)); }//Name,Variable,Spaces,Precision,EndTxt
 			printfloatx("", offsets[0], 5, 0, ",  ");
 			printfloatx("", offsets[1], 5, 0, ",  ");
 			printfloatx("", offsets[2], 5, 0, ",  ");
@@ -155,6 +168,7 @@ void setup() {
             free(offsets);
 		}
         else{
+            Serial.println(F("Reading offsets from eprom..."));
             preferences.getBytes("offsets", read_offsets, sizeof(int16_t) * 6);
             Serial.println();
             Serial.print(F("\n//           X Accel  Y Accel  Z Accel   X Gyro   Y Gyro   Z Gyro\n//OFFSETS READ FROM EPROM   "));
@@ -165,14 +179,14 @@ void setup() {
 			printfloatx("", read_offsets[3], 5, 0, ",  ");
 			printfloatx("", read_offsets[4], 5, 0, ",  ");
 			printfloatx("", read_offsets[5], 5, 0, ",  ");
-			// mpu.CalibrateAccel(6);
-			// mpu.CalibrateGyro(6);
             mpu.setXAccelOffset(read_offsets[0]);
             mpu.setYAccelOffset(read_offsets[1]);
             mpu.setZAccelOffset(read_offsets[2]);
             mpu.setXGyroOffset(read_offsets[3]);
             mpu.setYGyroOffset(read_offsets[4]);
             mpu.setZGyroOffset(read_offsets[5]);
+			mpu.CalibrateAccel(6);
+			mpu.CalibrateGyro(6);
         }
     // #ifdef CALIBRATE
     // #endif
