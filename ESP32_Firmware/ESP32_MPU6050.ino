@@ -42,7 +42,7 @@ void IRAM_ATTR dmpDataReady() { mpuInterrupt = true; }
 const char* ssid = "padula-note";
 const char* password = "hotspotforimu";
 
-const int port = 60001;
+const int port = 60000;
 const char* host = "padula-note.local";
 
 const int PushButton = 18;
@@ -118,7 +118,8 @@ void setup() {
 	devStatus = mpu.dmpInitialize();
 
 	// make sure it worked (returns 0 if so)
-    preferences.begin("IMUWS", false);   
+    preferences.begin("IMUWS", false);
+    // delay(10000);
 	if (devStatus == 0) {
 		// Calibration Time: generate offsets and calibrate our MPU6050
         if (digitalRead(PushButton) == HIGH) {
@@ -164,14 +165,14 @@ void setup() {
 			printfloatx("", read_offsets[3], 5, 0, ",  ");
 			printfloatx("", read_offsets[4], 5, 0, ",  ");
 			printfloatx("", read_offsets[5], 5, 0, ",  ");
+			// mpu.CalibrateAccel(6);
+			// mpu.CalibrateGyro(6);
             mpu.setXAccelOffset(read_offsets[0]);
             mpu.setYAccelOffset(read_offsets[1]);
             mpu.setZAccelOffset(read_offsets[2]);
             mpu.setXGyroOffset(read_offsets[3]);
             mpu.setYGyroOffset(read_offsets[4]);
             mpu.setZGyroOffset(read_offsets[5]);
-			mpu.CalibrateAccel(6);
-			mpu.CalibrateGyro(6);
         }
     // #ifdef CALIBRATE
     // #endif
@@ -226,19 +227,6 @@ void setup() {
 // ================================================================
 
 void loop() {    
-      
-	// if (!client.connected()) {
-	// 	if (!client.connect(host, port)) {
-	// 		Serial.println("Connection to host failed");
-
-	// 		delay(1000);
-	// 		return;
-	// 	} else {
-	// 		Serial.println("Connected to server successful!");
-	// 	}
-	// }
-
-	// if programming failed, don't try to do anything
 	if (!dmpReady) return;
 
 	// wait for MPU interrupt or extra packet(s) available
@@ -247,16 +235,6 @@ void loop() {
 			// try to get out of the infinite loop
 			fifoCount = mpu.getFIFOCount();
 		}
-		// other program behavior stuff here
-		// .
-		// .
-		// .
-		// if you are really paranoid you can frequently test in between other
-		// stuff to see if mpuInterrupt is true, and if so, "break;" from the
-		// while() loop to immediately process the MPU data
-		// .
-		// .
-		// .
 	}
 
 	// reset interrupt flag and get INT_STATUS byte

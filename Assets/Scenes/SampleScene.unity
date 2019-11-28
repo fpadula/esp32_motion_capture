@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 0.4465785, g: 0.49641252, b: 0.574817, a: 1}
+  m_IndirectSpecularColor: {r: 0.44657844, g: 0.49641222, b: 0.57481694, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -485,23 +485,6 @@ MonoBehaviour:
   y: 0
   z: 0
   port: 60001
---- !u!114 &551807598420390888
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 551807598420390895}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: bf527d5036facc644ada094cb1096f39, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  w: 0
-  x: 0
-  y: 0
-  z: 0
-  port: 0
 --- !u!33 &551807598420390890
 MeshFilter:
   m_ObjectHideFlags: 0
@@ -587,7 +570,6 @@ GameObject:
   - component: {fileID: 551807598420390890}
   - component: {fileID: 551807598420390893}
   - component: {fileID: 551807598420390892}
-  - component: {fileID: 551807598420390888}
   m_Layer: 0
   m_Name: Arm
   m_TagString: Untagged

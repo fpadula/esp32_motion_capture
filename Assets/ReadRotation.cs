@@ -14,6 +14,7 @@ public class ReadRotation : MonoBehaviour
 
     private IPEndPoint ip;
     private Thread data_reader;
+    private bool read_data;
 
     public int port;
     // Start is called before the first frame update
@@ -33,10 +34,11 @@ public class ReadRotation : MonoBehaviour
 
         this.data_reader = new Thread(new ThreadStart(ReadRemoteIMU));  
         this.data_reader.Start();
+        this.read_data = true;
     }
 
     void OnDestroy(){
-        this.data_reader.Abort();        
+        this.read_data = false;
     }
 
     // Update is called once per frame
@@ -53,7 +55,7 @@ public class ReadRotation : MonoBehaviour
         int bytesRec;
         char type;
         UdpClient client = new UdpClient(port);
-        while (true){         
+        while (this.read_data){         
             bytes = client.Receive(ref ip);
             this.w = (((float)(((short)(bytes[0] << 8)) | bytes[1]))) / 16384.0f;
             this.x = (((float)(((short)(bytes[2] << 8)) | bytes[3]))) / 16384.0f;
