@@ -1,0 +1,9 @@
+{
+	"folders": [
+        {
+            "name": "Esp32_IMU_firmware",
+            "path": "."
+        }
+    ],
+    "settings": {}
+}

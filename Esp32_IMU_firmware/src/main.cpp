@@ -1,11 +1,27 @@
-#include "I2Cdev.h"
+#define BUFFER_LENGTH 32
 
+#include <Arduino.h>
+
+#include <I2Cdev.h>
 #include "MPU6050_6Axis_MotionApps_V6_12.h"
+#include <MPU6050.h>
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include <MPU6050.h>
 #include <Preferences.h>
+
+// Battery monitoring includes:
+
+#include <driver/adc.h>
+#include <esp_adc_cal.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <esp_err.h>
+#include <esp_log.h>
+
+esp_adc_cal_characteristics_t adc_cal;
+TaskHandle_t management_loop_task;
+////////////////////////////////
 
 MPU6050 mpu;
 
@@ -89,9 +105,66 @@ int16_t *GetActiveOffsets(MPU6050 *mpu){
     return ret;
 }
 
+float v_out_reading(){
+    uint32_t voltage = 0;
+    for (int i = 0; i < 100; i++)
+    {
+      voltage += adc1_get_raw(ADC1_CHANNEL_0);//Obtem o valor RAW do ADC
+      ets_delay_us(30);
+    }
+    voltage /= 100;
+
+
+    voltage = esp_adc_cal_raw_to_voltage(voltage, &adc_cal);//Converte e calibra o valor lido (RAW) para mV        
+    return voltage/1000.0;//mv to V
+}
+
+void battery_reading_routine(void *parameter){
+    float r1, r2, battery_voltage, v_out;
+    bool led_state;
+    int i;    
+    r1 = 97800.0;
+    r2 = 55600.0;
+
+    while(1){
+        v_out = v_out_reading();
+        battery_voltage = (v_out*(r1 + r2))/r2;
+        // Serial.println("V_out voltage: " + String(v_out));
+        if(battery_voltage < 6.6){
+            Serial.println("Battery voltage: " + String(battery_voltage));
+            Serial.println("Critical voltage! Entering deep sleep...");
+            led_state = true;
+            for (i = 0; i < 50; i++){
+			    digitalWrite(LED_PIN, led_state);
+                led_state = !led_state;
+                delay(100);
+            }
+            esp_deep_sleep_start();
+        }
+        vTaskDelay(pdMS_TO_TICKS(10000));//Delay 1seg
+        // vTaskDelay(pdMS_TO_TICKS(1000));//Delay 1seg
+    }
+}
+
 void setup() {
+
+
     int16_t *offsets, read_offsets[6], buffer;            
     int i, addr;
+
+    adc1_config_width(ADC_WIDTH_BIT_12);//Configura a resolucao
+    adc1_config_channel_atten(ADC1_CHANNEL_0, ADC_ATTEN_DB_11);//Configura a atenuacao
+    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1097, &adc_cal);//Inicializa a estrutura de calibracao
+
+    xTaskCreatePinnedToCore(
+        battery_reading_routine,
+        "battery_reading_routine",
+        10000,
+        NULL,
+        2,
+        &management_loop_task,
+        0
+    );
 
 	pinMode(LED_PIN, OUTPUT);
 
@@ -126,11 +199,11 @@ void setup() {
 
 			Serial.println(F("Calibration button pushed. Setting offsets and calibrating..."));
             blinkState = true;
-            // for (i = 0; i < 10; i++){
-			//     digitalWrite(LED_PIN, blinkState);
-            //     blinkState = !blinkState;
-            //     delay(500);
-            // }
+            for (i = 0; i < 10; i++){
+			    digitalWrite(LED_PIN, blinkState);
+                blinkState = !blinkState;
+                delay(500);
+            }
             #define printfloatx(Name,Variable,Spaces,Precision,EndTxt) { Serial.print(F(Name)); {char S[(Spaces + Precision + 3)];Serial.print(F(" ")); Serial.print(dtostrf((float)Variable,Spaces,Precision ,S));}Serial.print(F(EndTxt)); }//Name,Variable,Spaces,Precision,EndTxt
 			
             // offsets = GetActiveOffsets(&mpu);
