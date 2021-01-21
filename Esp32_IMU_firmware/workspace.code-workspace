@@ -1,8 +1,16 @@
 {
 	"folders": [
 		{
+			"path": "src"
+		},
+		{
+			"name": "Esp32_IMU_firmware",
 			"path": "."
 		}
-    ],
-    "settings": {}
+	],
+	"settings": {
+		"files.associations": {
+			"cstddef": "cpp"
+		}
+	}
 }

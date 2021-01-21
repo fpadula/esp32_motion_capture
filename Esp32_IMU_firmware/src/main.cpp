@@ -6,6 +6,8 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <ESPmDNS.h>
+#include "ota.h"
 #include <Preferences.h>
 
 // Battery monitoring includes:
@@ -22,6 +24,10 @@ TaskHandle_t management_loop_task;
 ////////////////////////////////
 
 MPU6050 mpu;
+#define UDP_PORT 60002
+#define MDNS_NAME "IMU60002"
+#define CUTOFF_VOLTAGE 6.6
+#define FASTEXEC
 
 #define INTERRUPT_PIN 23  // use pin 2 on Arduino Uno & most boards
 #define LED_PIN 2		 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
@@ -40,7 +46,11 @@ uint8_t fifoBuffer[64];  // FIFO storage buffer
 
 uint8_t unityPacket[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
-
+// union FAsB{
+//     float fval;
+//     uint8_t bval[4];
+// };
+// union FAsB fasb_h;
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
 // ================================================================
@@ -53,14 +63,17 @@ void IRAM_ATTR dmpDataReady() { mpuInterrupt = true; }
 // ===                      INITIAL SETUP                       ===
 // ================================================================
 
-const char* ssid = "padula-note";
-const char* password = "hotspotforimu";
+const char* ssid = "VenusWifi";
+const char* password = "bisgatafuta";
 
-const int port = 60001;
-const char* host = "padula-note.local";
+const int port = UDP_PORT;
+//const char* host = "charizard";
+//char host_ip[20];
+const char* host_ip = "192.168.0.23";
+const char* host = "192.168.0.23";
 
 const int PushButton = 18;
-
+float current_voltage;
 WiFiClient client;
 
 WiFiUDP udp;                                // A UDP instance to let us send and receive packets over UDP
@@ -113,41 +126,58 @@ float v_out_reading(){
     voltage /= 100;
 
 
-    voltage = esp_adc_cal_raw_to_voltage(voltage, &adc_cal);//Converte e calibra o valor lido (RAW) para mV        
+    voltage = esp_adc_cal_raw_to_voltage(voltage, &adc_cal);//Converte e calibra o valor lido (RAW) para mV
     return voltage/1000.0;//mv to V
 }
 
 void battery_reading_routine(void *parameter){
     float r1, r2, battery_voltage, v_out;
     bool led_state;
-    int i;    
+    int i;
     r1 = 97800.0;
     r2 = 55600.0;
 
     while(1){
         v_out = v_out_reading();
         battery_voltage = (v_out*(r1 + r2))/r2;
+		current_voltage = battery_voltage;
+		// current_voltage = 77.88;
         // Serial.println("V_out voltage: " + String(v_out));
-        if(battery_voltage < 6.6){
+        if(battery_voltage < CUTOFF_VOLTAGE){
             Serial.println("Battery voltage: " + String(battery_voltage));
             Serial.println("Critical voltage! Entering deep sleep...");
             led_state = true;
-            for (i = 0; i < 50; i++){
+            for (i = 0; i < 10; i++){
 			    digitalWrite(LED_PIN, led_state);
                 led_state = !led_state;
-                delay(100);
+                delay(1000);
             }
             esp_deep_sleep_start();
         }
-        vTaskDelay(pdMS_TO_TICKS(10000));//Delay 1seg
-        // vTaskDelay(pdMS_TO_TICKS(1000));//Delay 1seg
+        vTaskDelay(pdMS_TO_TICKS(10000));
     }
+}
+
+void resolve_mdns_host(const char * host_name, char *resolved_name){
+    struct ip4_addr addr;
+    addr.addr = 0;
+
+    esp_err_t err = mdns_query_a(host_name, 2000,  &addr);
+    if(err){
+        if(err == ESP_ERR_NOT_FOUND){
+            Serial.println("Host was not found!");
+            return;
+        }
+        Serial.println("Query Failed");
+        return;
+    }	
+	sprintf ( resolved_name,   IPSTR,  IP2STR(&addr));    
 }
 
 void setup() {
 
 
-    int16_t *offsets, read_offsets[6], buffer;            
+    int16_t *offsets, read_offsets[6], buffer;
     int i, addr;
 
     adc1_config_width(ADC_WIDTH_BIT_12);//Configura a resolucao
@@ -179,10 +209,12 @@ void setup() {
 	mpu.initialize();
 	pinMode(INTERRUPT_PIN, INPUT);
 
+	#ifndef FASTEXEC
 	// verify connection
 	Serial.println(F("Testing device connections..."));
 	Serial.println(mpu.testConnection() ? F("MPU6050 connection successful")
 										: F("MPU6050 connection failed"));
+	#endif
 
 	// load and configure the DMP
 	Serial.println(F("Initializing DMP..."));
@@ -197,15 +229,15 @@ void setup() {
 
 			Serial.println(F("Calibration button pushed. Setting offsets and calibrating..."));
             blinkState = true;
-            for (i = 0; i < 10; i++){
+            for (i = 0; i < 100; i++){
 			    digitalWrite(LED_PIN, blinkState);
                 blinkState = !blinkState;
-                delay(500);
+                delay(100);
             }
             #define printfloatx(Name,Variable,Spaces,Precision,EndTxt) { Serial.print(F(Name)); {char S[(Spaces + Precision + 3)];Serial.print(F(" ")); Serial.print(dtostrf((float)Variable,Spaces,Precision ,S));}Serial.print(F(EndTxt)); }//Name,Variable,Spaces,Precision,EndTxt
-			
+
             // offsets = GetActiveOffsets(&mpu);
-            
+
 
             // Serial.print(F("\n//           X Accel  Y Accel  Z Accel   X Gyro   Y Gyro   Z Gyro\n//OFFSETS SAVED ON EPROM   "));
 			// printfloatx("", offsets[0], 5, 0, ",  ");
@@ -227,7 +259,7 @@ void setup() {
             mpu.setZGyroOffset(offsets[5]);
 
             preferences.putBytes("offsets", offsets, sizeof(int16_t) * 6);
-            
+
             Serial.print(F("\n//           X Accel  Y Accel  Z Accel   X Gyro   Y Gyro   Z Gyro\n//OFFSETS SAVED ON EPROM   "));
 			printfloatx("", offsets[0], 5, 0, ",  ");
 			printfloatx("", offsets[1], 5, 0, ",  ");
@@ -292,7 +324,7 @@ void setup() {
 		Serial.println(F(")"));
 	}
 
-	
+
 
 	WiFi.begin(ssid, password);
 	while (WiFi.status() != WL_CONNECTED) {
@@ -305,15 +337,35 @@ void setup() {
 	digitalWrite(LED_PIN, false);
 
 	udp.begin(port);
+
+    ota_setup();
+	//  My setup onwards
+
+	if (!MDNS.begin(MDNS_NAME)) { //http://esp32.local
+		// Serial.println("Error setting up MDNS responder!");
+		while (1) {
+			delay(1000);
+		}
+    }
+	current_voltage = CUTOFF_VOLTAGE+1;
+	//resolve_mdns_host(host, host_ip);
 }
 
 // ================================================================
 // ===                    MAIN PROGRAM LOOP                     ===
 // ================================================================
 
-void loop() {    
+void loop() {
+    if (digitalRead(PushButton) == HIGH) {
+        digitalWrite(LED_PIN, HIGH);
+        ArduinoOTA.handle();
+	    yield();
+    }
+    else{
+        digitalWrite(LED_PIN, LOW);
+    }
 	if (!dmpReady) return;
-
+	// MDNS.update();
 	// wait for MPU interrupt or extra packet(s) available
 	while (!mpuInterrupt && fifoCount < packetSize) {
 		if (mpuInterrupt && fifoCount < packetSize) {
@@ -340,7 +392,7 @@ void loop() {
 
 		// otherwise, check for DMP data ready interrupt (this should happen
 		// frequently)
-	} 
+	}
     else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT)) {
 		// wait for correct available data length, should be a VERY short wait
 		while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
@@ -361,9 +413,15 @@ void loop() {
 		unityPacket[6] = fifoBuffer[12];
 		unityPacket[7] = fifoBuffer[13];
 
-		udp.beginPacket(host, port);
+		// fasb_h.fval = 77.88;
+		// unityPacket[8] = fasb_h.bval[3];
+		// unityPacket[9] = fasb_h.bval[2];
+		// unityPacket[10] = fasb_h.bval[1];
+		// unityPacket[11] = fasb_h.bval[0];
+
+		udp.beginPacket(host_ip, port);
 		udp.write(unityPacket, 8);
 		udp.endPacket();
-		
+
 	}
 }
