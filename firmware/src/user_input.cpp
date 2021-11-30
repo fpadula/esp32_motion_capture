@@ -95,11 +95,21 @@ bool read_input_text(char* buffer, int buffer_size){
             // Serial.println((int) rc);
             if (rc != endMarker) {
                 if(rc != '\r'){
-                    buffer[ndx] = rc;
-                    ndx++;
-                    if (ndx >= buffer_size) {
-                        ndx = buffer_size - 1;
+                    if(rc == 0x08){ // Backspace
+                        if(ndx - 1 >= 0)                        
+                            ndx--;
                     }
+                    else{
+                        buffer[ndx] = rc;
+                        ndx++;
+                        if (ndx >= buffer_size) {
+                            ndx = buffer_size - 1;
+                        }
+                    }
+                    Serial.print(rc);
+                }
+                else{
+                    Serial.println();
                 }
             }
             else {

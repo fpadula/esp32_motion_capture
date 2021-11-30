@@ -20,17 +20,57 @@
 // MPU
 #include <MPU9250.h>
 
+// Constants used to communicate with host
+#include <CommConsts.h>
+
+#define BUFFER_LEN 512
+
 char ssid[MAX_STR_SIZE], password[MAX_STR_SIZE], host_ip[MAX_STR_SIZE];
+char device_name[MAX_STR_SIZE];
 int port, quat_filter, quat_iters, packet_min_interval;
 char receivedChars[MAX_STR_SIZE];
 bool connected_to_usb, accessing_menu;
 float acc_bias[3], gyro_bias[3], mag_bias[3], mag_scale[3], mag_decli;
-uint8_t quat_bytes[16];
+uint8_t buffer[BUFFER_LEN];
 InteractiveMenu menu(5);
 Preferences preferences;
 WiFiClient client;
-WiFiUDP udp;
+WiFiUDP udp, upd_discovery;
 MPU9250 mpu;
+
+volatile bool blink;
+
+void blink_led_loop(void *parameter){
+    bool led_state = HIGH;
+
+    while(blink){
+        if(led_state == HIGH)
+            led_state = LOW;
+        else
+            led_state = HIGH;
+        digitalWrite(LED_BUILTIN, led_state);
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    digitalWrite(LED_BUILTIN, LOW);
+    vTaskDelete( NULL );
+}
+
+void enable_blink(){
+    blink = true;
+    xTaskCreatePinnedToCore(
+        blink_led_loop,
+        "blink_led_loop",
+        10000,
+        NULL,
+        2,
+        NULL,
+        0
+    );
+}
+
+void disable_blink(){
+    blink = false;
+}
 
 void set_ip(){
     Serial.println("Type the host ip address and press enter.");
@@ -65,6 +105,18 @@ void set_password(){
     }
     else
         Serial.print("Invalid network password. Aborted.");
+    Serial.println("'. Press any key to continue.");
+    wait_key_press();
+}
+
+void set_device_name(){
+    Serial.println("Type the device name press enter.");
+    if (read_input_text(receivedChars, MAX_STR_SIZE)){
+        strncpy(device_name, receivedChars, MAX_STR_SIZE);
+        Serial.print("Device name set to '"); Serial.print(device_name);
+    }
+    else
+        Serial.print("Invalid device name. Aborted.");
     Serial.println("'. Press any key to continue.");
     wait_key_press();
 }
@@ -163,38 +215,47 @@ void set_mag_dec(){
     wait_key_press();
 }
 
-void cali_mag(){
+void cali_mag_routine(){
     int i;
-
-    Serial.println("Mag calibration will start in 5sec.");
-    Serial.println("Please wave device in a figure eight until done.");
-    mpu.verbose(true);
-    delay(5000);
-    Serial.println("Calibration start!");
+    enable_blink();
     mpu.calibrateMag();
     for(i = 0; i< 3; i++){
         mag_bias[i] = mpu.getMagBias(i);
         mag_scale[i] = mpu.getMagScale(i);
     }
+    disable_blink();
+}
+
+void cali_mag(){
+    Serial.println("Mag calibration will start in 5sec.");
+    Serial.println("Please wave device in a figure eight until done.");
+    mpu.verbose(true);    
+    Serial.println("Calibration start!");
+    cali_mag_routine();
     mpu.verbose(false);
     Serial.print("Accel Gyro calibration completed");
     Serial.println(". Press any key to continue.");
     wait_key_press();
 }
 
-void cali_acc_gyro(){
+void cali_acc_gyro_routine(){
     int i;
-
-    Serial.println("Accel Gyro calibration will start in 5sec.");
-    Serial.println("Please leave the device still on the flat plane.");
-    mpu.verbose(true);
-    delay(5000);
-    Serial.println("Calibration start!");
+    enable_blink();
     mpu.calibrateAccelGyro();
     for(i = 0; i< 3; i++){
         acc_bias[i] = mpu.getAccBias(i);
         gyro_bias[i] = mpu.getGyroBias(i);
     }
+    disable_blink();
+}
+
+void cali_acc_gyro(){
+    Serial.println("Accel Gyro calibration will start in 5sec.");
+    Serial.println("Please leave the device still on the flat plane.");
+    mpu.verbose(true);
+    delay(5000);
+    Serial.println("Calibration start!");
+    cali_acc_gyro_routine();
     mpu.verbose(false);
     Serial.print("Accel Gyro calibration completed");
     Serial.println(". Press any key to continue.");
@@ -244,6 +305,7 @@ void get_configs_from_memory(){
     strncpy(host_ip, preferences.getString("host_ip", "none").c_str(), MAX_STR_SIZE);
     strncpy(ssid, preferences.getString("ssid", "none").c_str(), MAX_STR_SIZE);
     strncpy(password, preferences.getString("password", "none").c_str(), MAX_STR_SIZE);
+    strncpy(device_name, preferences.getString("device_name", "none").c_str(), MAX_STR_SIZE);
     port = preferences.getInt("port", 0);
     for(i = 0; i< 3; i++){
         sprintf(param_name, "acc_bias_%d", i);
@@ -277,13 +339,14 @@ void load_configs(){
     wait_key_press();
 }
 
-void save_configs(){
+void set_configs_to_memory(){
     int i;
     char param_name[32];
 
     preferences.putString("host_ip", host_ip);
     preferences.putString("ssid", ssid);
     preferences.putString("password", password);
+    preferences.putString("device_name", device_name);
     preferences.putInt("port", port);
 
     for(i = 0; i< 3; i++){
@@ -300,7 +363,10 @@ void save_configs(){
     preferences.putInt("quat_filter", quat_filter);
     preferences.putInt("quat_iters", quat_iters);
     preferences.putInt("pckt_min_int", packet_min_interval);
+}
 
+void save_configs(){
+    set_configs_to_memory();
     Serial.print("Configuration saved to non-volatile memory.");
     Serial.println(" Press any key to continue.");
     wait_key_press();
@@ -316,8 +382,9 @@ void exit_menu(){
 void setup_menu_windows(){
     menu.config_menus[0].set_name("Main Menu");
     menu.config_menus[0].add_option("Wifi configuration", 1);
-    menu.config_menus[0].add_option("Sensor TCP port", 2);
+    menu.config_menus[0].add_option("Sensor data port", 2);
     menu.config_menus[0].add_option("Calibration", 3);
+    menu.config_menus[0].add_option("Set device name", 0, set_device_name);
     menu.config_menus[0].add_option("Save configurations", 0, save_configs);
     menu.config_menus[0].add_option("Exit", 0, exit_menu);
     // this->config_menus[0].add_option("Exit");
@@ -358,6 +425,74 @@ bool has_usb_connection(unsigned long timeout){
     return Serial.available() != 0;
 }
 
+void print_roll_pitch_yaw() {
+    Serial.print("Yaw, Pitch, Roll: ");
+    Serial.print(mpu.getYaw(), 2);
+    Serial.print(", ");
+    Serial.print(mpu.getPitch(), 2);
+    Serial.print(", ");
+    Serial.println(mpu.getRoll(), 2);
+}
+
+void print_quaternion() {
+    Serial.print("X, Y, Z, W: ");
+    Serial.print(mpu.getQuaternionX(), 2);
+    Serial.print(", ");
+    Serial.print(mpu.getQuaternionY(), 2);
+    Serial.print(", ");
+    Serial.print(mpu.getQuaternionZ(), 2);
+    Serial.print(", ");
+    Serial.println(mpu.getQuaternionW(), 2);
+}
+
+uint8_t* build_msg_header(char msg_type, uint8_t *buffer, msg_size_type msg_size){
+    uint8_t *ptr;
+    // msg_size_type message_size;
+
+    // Set pointer to the beggining of the buffer (type of message)
+    ptr = &buffer[0];
+    // Set msg type
+    ptr[0] = msg_type;
+    // Increment to the second field (message size)
+    ptr += sizeof(char);
+    memcpy(ptr, &msg_size, sizeof(msg_size_type));    
+    // Increment to the third field (message data)
+    ptr += sizeof(msg_size_type);
+    return ptr;
+}
+
+size_t build_msg(char msg_type, uint8_t *buffer, float *data, int data_length){
+    uint8_t *ptr;
+    msg_size_type msg_size;
+
+    msg_size = data_length * sizeof(float);
+    ptr = build_msg_header(msg_type, buffer, msg_size);
+    for(int i = 0; i < data_length; i++){
+        memcpy(&ptr[i*sizeof(float)], &data[i], sizeof(float));
+    }
+    return (ptr - buffer) + msg_size;
+}
+
+size_t build_msg(char msg_type, uint8_t *buffer, char *data){
+    uint8_t *ptr;
+    msg_size_type msg_size;
+
+    msg_size = strlen(data);
+    ptr = build_msg_header(msg_type, buffer, msg_size);
+    memcpy(ptr, data, strlen(data));
+    return (ptr - buffer) + msg_size;
+}
+
+void send_msg(WiFiUDP &wudp, const char* ip, uint16_t port, uint8_t *buffer, size_t buffer_size){
+    wudp.beginPacket(ip, port);
+    wudp.write(buffer, buffer_size);
+    wudp.endPacket();
+}
+
+// void build_msg(char msg_type, uint8_t *buffer, msg_size_type buffer_size, char *data, msg_size_type_type data_size){
+
+// }
+
 void setup(){
     int opt;
 
@@ -392,61 +527,113 @@ void setup(){
     }
     preferences.end();
 
-    Serial.print("Connecting to network '");Serial.print(ssid);Serial.println('.');
+    Serial.print("Connecting to network '");Serial.print(ssid);Serial.println("'.");
     WiFi.begin(ssid, password);
+    enable_blink();
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         Serial.print(".");
     }
+    disable_blink();
     Serial.println(" Done!");
     Serial.print("WiFi connected with IP: ");
     Serial.println(WiFi.localIP());
 
     udp.begin(port);
-}
-
-void print_roll_pitch_yaw() {
-    Serial.print("Yaw, Pitch, Roll: ");
-    Serial.print(mpu.getYaw(), 2);
-    Serial.print(", ");
-    Serial.print(mpu.getPitch(), 2);
-    Serial.print(", ");
-    Serial.println(mpu.getRoll(), 2);
-}
-
-void print_quaternion() {
-    Serial.print("X, Y, Z, W: ");
-    Serial.print(mpu.getQuaternionX(), 2);
-    Serial.print(", ");
-    Serial.print(mpu.getQuaternionY(), 2);
-    Serial.print(", ");
-    Serial.print(mpu.getQuaternionZ(), 2);
-    Serial.print(", ");
-    Serial.println(mpu.getQuaternionW(), 2);
+    upd_discovery.begin(DISCOVERY_PORT);
 }
 
 void loop(){
-    float x, y, z, w;
-    
+    float q[4];
+    char text_message[BUFFER_LEN], cmd;
+    size_t msg_size;
+    int packetSize;
+
+    packetSize = upd_discovery.parsePacket();
+    if(packetSize > 0){                
+        memset(buffer, 0, BUFFER_LEN);
+        int i = 0;
+        while (upd_discovery.available() > 0){
+            buffer[i] = upd_discovery.read();
+            i++;
+            if(i >= BUFFER_LEN){
+                i = BUFFER_LEN - 1;
+            }
+        }         
+        IPAddress remote_ip = upd_discovery.remoteIP();        
+        Serial.print("Received discovery broadcast from ");
+        Serial.print(remote_ip);
+        Serial.print(", :");
+        Serial.println((char *)buffer);
+        // cmd = buffer[0];
+        sprintf(text_message, "%s;%s;%d", device_name, host_ip, port);
+        Serial.print("Sending sensor info: ");Serial.println(text_message);                
+        msg_size = build_msg(IMU_BDCST_RESP, buffer, text_message);            
+        send_msg(upd_discovery, remote_ip.toString().c_str(), DISCOVERY_PORT, buffer, msg_size);   
+    }
+    packetSize = udp.parsePacket();
+    if(packetSize > 0){                
+        memset(buffer, 0, BUFFER_LEN);
+        int i = 0;
+        while (udp.available() > 0){
+            buffer[i] = udp.read();
+            i++;
+            if(i >= BUFFER_LEN){
+                i = BUFFER_LEN - 1;
+            }
+        }                
+        Serial.print("Received from host: ");
+        Serial.println((char *)buffer);
+        cmd = buffer[0];
+        switch (cmd){
+            case IMU_CAL_ACCGYRO:            
+                Serial.println("Calibrate gyro!");
+                cali_acc_gyro_routine();
+                break;
+            case IMU_CAL_MAG:            
+                Serial.println("Calibrate mag!");
+                cali_mag_routine();
+                break;
+            case IMU_CHANGEPORT:            
+                Serial.println("Change port!");
+                break;
+            case IMU_CHANGEIP:            
+                Serial.println("Change ip!");
+                break;
+            case IMU_SAVE_CFG:            
+                Serial.println("Saving config to memory!");
+                set_configs_to_memory();
+                break;
+            case IMU_LOAD_CFG:            
+                Serial.println("Load config to memory!");
+                get_configs_from_memory();
+                break;
+            case IMU_DISCOVER:
+                sprintf(text_message, "%s;%s;%d", device_name, host_ip, port);
+                Serial.print("Sending sensor info: ");Serial.println(text_message);                
+                msg_size = build_msg(IMU_MSG_TYPE_INFO, buffer, text_message);            
+                send_msg(udp, host_ip, port, buffer, msg_size);   
+                break;
+            default:
+                break;
+        }
+    }
     if (mpu.update()) {
         static uint32_t prev_ms = millis();
         if (millis() > prev_ms + packet_min_interval) {
-        //     print_quaternion();
-            // print_roll_pitch_yaw();
-            // prev_ms = millis();
-            x = mpu.getQuaternionX();
-            y = mpu.getQuaternionY();
-            z = mpu.getQuaternionZ();
-            w = mpu.getQuaternionW();
-                   
-            memcpy(&quat_bytes[0], &x, sizeof(float));
-            memcpy(&quat_bytes[4], &y, sizeof(float));
-            memcpy(&quat_bytes[8], &z, sizeof(float));
-            memcpy(&quat_bytes[12], &w, sizeof(float));
-
-            udp.beginPacket(host_ip, port);
-            udp.write(quat_bytes, sizeof(float)*4);
-            udp.endPacket();
+            prev_ms = millis();
+            // q[0] = 11.1f;
+            // q[1] = 22.2f;
+            // q[2] = 33.3f;
+            // q[3] = 44.4f;
+            q[0] = mpu.getQuaternionX();
+            q[1] = mpu.getQuaternionY();
+            q[2] = mpu.getQuaternionZ();
+            q[3] = mpu.getQuaternionW();
+            
+            msg_size = build_msg(IMU_MSG_TYPE_DATA, buffer, q, 4);            
+            send_msg(udp, host_ip, port, buffer, msg_size);    
         }
     }
+    // delay(5);
 }

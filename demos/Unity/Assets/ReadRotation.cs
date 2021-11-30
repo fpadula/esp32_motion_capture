@@ -62,10 +62,10 @@ public class ReadRotation : MonoBehaviour
         UdpClient client = new UdpClient(port);        
         while (this.read_data){         
             bytes = client.Receive(ref ip);           
-            this.x = System.BitConverter.ToSingle(bytes, 0);
-            this.y = System.BitConverter.ToSingle(bytes, 4);
-            this.z = System.BitConverter.ToSingle(bytes, 8);
-            this.w = System.BitConverter.ToSingle(bytes, 12);         
+            this.x = System.BitConverter.ToSingle(bytes, 3);
+            this.y = System.BitConverter.ToSingle(bytes, 7);
+            this.z = System.BitConverter.ToSingle(bytes, 11);
+            this.w = System.BitConverter.ToSingle(bytes, 15);         
         }        
     }
 }
